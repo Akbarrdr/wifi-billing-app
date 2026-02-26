@@ -1,10 +1,66 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Dashboard</title>
+  <meta charset="UTF-8">
+  <title>Dashboard WiFi Billing</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f4f4f4; }
+    button { padding: 5px 10px; margin: 2px; cursor: pointer; }
+    form input { padding: 5px; margin-right: 5px; }
+  </style>
 </head>
 <body>
   <h2>Dashboard WiFi Billing</h2>
   <p>Login berhasil 🎉</p>
+
+  <h3>Tambah Pelanggan</h3>
+  <form id="customerForm">
+    <input type="text" id="name" placeholder="Nama" required>
+    <input type="text" id="paket" placeholder="Paket" required>
+    <input type="number" id="harga" placeholder="Harga" required>
+    <button type="submit">Tambah</button>
+  </form>
+
+  <h3>Daftar Pelanggan</h3>
+  <table id="customerTable">
+    <tr>
+      <th>Nama</th><th>Paket</th><th>Harga</th><th>Aksi</th>
+    </tr>
+  </table>
+
+  <script type="module">
+    import { addCustomer, getCustomers, deleteCustomer, updateCustomer } from "./firestore.js";
+
+    const form = document.getElementById("customerForm");
+    const table = document.getElementById("customerTable");
+
+    async function loadCustomers() {
+      const customers = await getCustomers();
+      table.innerHTML = `<tr><th>Nama</th><th>Paket</th><th>Harga</th><th>Aksi</th></tr>`;
+      customers.forEach(c => {
+        const row = table.insertRow();
+        row.insertCell(0).innerText = c.name;
+        row.insertCell(1).innerText = c.paket;
+        row.insertCell(2).innerText = c.harga;
+        const aksiCell = row.insertCell(3);
+        const delBtn = document.createElement("button");
+        delBtn.innerText = "Hapus";
+        delBtn.onclick = async () => { await deleteCustomer(c.id); loadCustomers(); };
+        aksiCell.appendChild(delBtn);
+      });
+    }
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      await addCustomer(form.name.value, form.paket.value, Number(form.harga.value));
+      form.reset();
+      loadCustomers();
+    }
+
+    loadCustomers();
+  </script>
 </body>
 </html>
