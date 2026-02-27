@@ -22,11 +22,12 @@ const db = getFirestore(app);
 ========================= */
 
 // Tambah pelanggan
-export async function addCustomer(name, paket, harga) {
+export async function addCustomer(name, paket, harga, phone) {
   await addDoc(collection(db, "customers"), {
     name,
     paket,
     harga,
+    phone,
     createdAt: new Date()
   });
 }
@@ -91,4 +92,35 @@ export async function payBill(id) {
   await updateDoc(doc(db, "bills", id), {
     status: "Lunas"
   });
+}
+
+// Ambil ringkasan keuangan
+export async function getFinanceSummary() {
+  const snapshot = await getDocs(collection(db, "bills"));
+  const bills = snapshot.docs.map(d => d.data());
+
+  let totalIncome = 0;
+  let totalDebt = 0;
+  let monthlyIncome = {};
+
+  bills.forEach(b => {
+    if (b.status === "Lunas") {
+      totalIncome += Number(b.harga);
+
+      if (!monthlyIncome[b.bulan]) {
+        monthlyIncome[b.bulan] = 0;
+      }
+      monthlyIncome[b.bulan] += Number(b.harga);
+    }
+
+    if (b.status === "Belum Bayar") {
+      totalDebt += Number(b.harga);
+    }
+  });
+
+  return {
+    totalIncome,
+    totalDebt,
+    monthlyIncome
+  };
 }

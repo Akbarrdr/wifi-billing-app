@@ -5,24 +5,85 @@
   <title>Dashboard WiFi Billing</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial; padding: 20px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-    th, td { border: 1px solid #ccc; padding: 8px; }
-    th { background: #f4f4f4; }
-    button { padding: 5px 10px; cursor: pointer; }
-    form input { padding: 5px; margin-right: 5px; }
+    body { font-family: Arial; padding: 20px; background:#f5f6fa; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; background:white; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f1f2f6; }
+    button { padding: 6px 12px; cursor: pointer; border:none; border-radius:4px; }
+    button:hover { opacity:0.9; }
+    .btn-danger { background:#ff6b6b; color:white; }
+    .btn-success { background:#2ed573; color:white; }
+    .btn-primary { background:#1e90ff; color:white; }
+    form input { padding: 6px; margin-right: 5px; }
+    .card-container { display:flex; gap:20px; margin-bottom:20px; }
+    .card {
+      flex:1;
+      background:white;
+      padding:20px;
+      border-radius:10px;
+      box-shadow:0 4px 8px rgba(0,0,0,0.05);
+    }
+    :root {
+  --primary: #2563eb;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --bg: #f8fafc;
+  --card: #ffffff;
+}
+
+body {
+  background: var(--bg);
+  font-family: 'Segoe UI', sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+
+h1 {
+  color: var(--primary);
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
   </style>
 </head>
 <body>
 
 <h2>Dashboard WiFi Billing</h2>
 
+<!-- DASHBOARD KEUANGAN -->
+<div class="dashboard">
+
+  <div class="card">
+    <h3>Total Pemasukan</h3>
+    <p id="totalPemasukan">Rp 0</p>
+  </div>
+
+  <div class="card">
+    <h3>Pelanggan Aktif</h3>
+    <p id="totalCustomer">0</p>
+  </div>
+
+  <div class="card danger">
+    <h3>Total Tunggakan</h3>
+    <p id="totalTunggakan">Rp 0</p>
+  </div>
+
+</div>
+
+<canvas id="monthlyChart" height="100"></canvas>
+
+<hr><br>
+
 <h3>Tambah Pelanggan</h3>
 <form id="customerForm">
   <input type="text" id="name" placeholder="Nama" required>
   <input type="text" id="paket" placeholder="Paket" required>
   <input type="number" id="harga" placeholder="Harga" required>
-  <button type="submit">Tambah</button>
+  <input type="text" id="phone" placeholder="No HP (628xxx)" required>
+  <button class="btn-primary" type="submit">Tambah</button>
 </form>
 
 <h3>Daftar Pelanggan</h3>
@@ -36,7 +97,7 @@
 </table>
 
 <h3>Sistem Tagihan</h3>
-<button id="generateBillBtn">Generate Tagihan Bulan Ini</button>
+<button class="btn-primary" id="generateBillBtn">Generate Tagihan Bulan Ini</button>
 
 <table id="billTable">
   <tr>
@@ -48,14 +109,6 @@
   </tr>
 </table>
 
-<p>Total Tunggakan: <span id="totalDebt">0</span></p>
-
-<h3>Ringkasan</h3>
-<p>Total Pelanggan: <span id="totalCustomer">0</span></p>
-<p>Total Pemasukan: <span id="totalIncome">0</span></p>
-
-<canvas id="incomeChart" width="400" height="200"></canvas>
-
 <script type="module">
 
 import {
@@ -64,24 +117,59 @@ import {
   deleteCustomer,
   generateMonthlyBills,
   getBills,
-  payBill
+  payBill,
+  getFinanceSummary
 } from "./firestore.js";
 
 const form = document.getElementById("customerForm");
 const table = document.getElementById("customerTable");
 const billTable = document.getElementById("billTable");
 
-const totalCustomerElem = document.getElementById("totalCustomer");
-const totalIncomeElem = document.getElementById("totalIncome");
-const totalDebtElem = document.getElementById("totalDebt");
+const financeIncome = document.getElementById("financeIncome");
+const financeDebt = document.getElementById("financeDebt");
+const financeCustomer = document.getElementById("financeCustomer");
 
 const generateBtn = document.getElementById("generateBillBtn");
-const ctx = document.getElementById("incomeChart").getContext("2d");
+const monthlyCtx = document.getElementById("monthlyChart").getContext("2d");
 
-let chart;
+let monthlyChart;
+
+/* FORMAT RUPIAH */
+function formatRupiah(angka) {
+  return "Rp " + angka.toLocaleString("id-ID");
+}
 
 /* ===========================
-   CUSTOMER SECTION
+   DASHBOARD KEUANGAN
+=========================== */
+
+async function loadFinance() {
+  const finance = await getFinanceSummary();
+  const customers = await getCustomers();
+
+  financeIncome.innerText = formatRupiah(finance.totalIncome);
+  financeDebt.innerText = formatRupiah(finance.totalDebt);
+  financeCustomer.innerText = customers.length;
+
+  const labels = Object.keys(finance.monthlyIncome);
+  const data = Object.values(finance.monthlyIncome);
+
+  if (monthlyChart) monthlyChart.destroy();
+
+  monthlyChart = new Chart(monthlyCtx, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [{
+        label: "Pemasukan Bulanan",
+        data: data
+      }]
+    }
+  });
+}
+
+/* ===========================
+   CUSTOMER
 =========================== */
 
 async function loadCustomers() {
@@ -96,47 +184,22 @@ async function loadCustomers() {
     </tr>
   `;
 
-  let totalIncome = 0;
-
   customers.forEach(c => {
     const row = table.insertRow();
     row.insertCell(0).innerText = c.name;
     row.insertCell(1).innerText = c.paket;
-    row.insertCell(2).innerText = c.harga;
-
-    totalIncome += Number(c.harga);
+    row.insertCell(2).innerText = formatRupiah(c.harga);
 
     const aksiCell = row.insertCell(3);
     const btn = document.createElement("button");
     btn.innerText = "Hapus";
+    btn.className = "btn-danger";
     btn.onclick = async () => {
       await deleteCustomer(c.id);
-      loadCustomers();
+      await loadCustomers();
+      await loadFinance();
     };
     aksiCell.appendChild(btn);
-  });
-
-  totalCustomerElem.innerText = customers.length;
-  totalIncomeElem.innerText = totalIncome;
-
-  updateChart(customers);
-}
-
-function updateChart(customers) {
-  const labels = customers.map(c => c.name);
-  const data = customers.map(c => Number(c.harga));
-
-  if (chart) chart.destroy();
-
-  chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Harga Paket',
-        data: data
-      }]
-    }
   });
 }
 
@@ -146,21 +209,23 @@ form.addEventListener("submit", async (e) => {
   await addCustomer(
     document.getElementById("name").value,
     document.getElementById("paket").value,
-    Number(document.getElementById("harga").value)
+    Number(document.getElementById("harga").value),
+    document.getElementById("phone").value
   );
 
   form.reset();
-  loadCustomers();
+  await loadCustomers();
+  await loadFinance();
 });
 
-
 /* ===========================
-   BILLING SECTION
+   BILLING
 =========================== */
 
 generateBtn.onclick = async () => {
   await generateMonthlyBills();
-  loadBills();
+  await loadBills();
+  await loadFinance();
 };
 
 async function loadBills() {
@@ -176,33 +241,64 @@ async function loadBills() {
     </tr>
   `;
 
-  let totalDebt = 0;
-
   bills.forEach(b => {
     const row = billTable.insertRow();
     row.insertCell(0).innerText = b.customerName;
     row.insertCell(1).innerText = b.bulan;
-    row.insertCell(2).innerText = b.harga;
+    row.insertCell(2).innerText = formatRupiah(b.harga);
     row.insertCell(3).innerText = b.status;
-
-    if (b.status === "Belum Bayar") {
-      totalDebt += Number(b.harga);
-    }
 
     const aksi = row.insertCell(4);
 
     if (b.status === "Belum Bayar") {
-      const btn = document.createElement("button");
-      btn.innerText = "Tandai Lunas";
-      btn.onclick = async () => {
-        await payBill(b.id);
-        loadBills();
-      };
-      aksi.appendChild(btn);
-    }
-  });
 
-  totalDebtElem.innerText = totalDebt;
+  // Tombol Tandai Lunas
+  const btnLunas = document.createElement("button");
+  btnLunas.innerText = "Lunas";
+  btnLunas.className = "btn-success";
+  btnLunas.onclick = async () => {
+    await payBill(b.id);
+    await loadBills();
+    await loadFinance();
+  };
+
+  aksi.appendChild(btnLunas);
+
+  // Tombol WhatsApp
+  const btnWA = document.createElement("button");
+  btnWA.innerText = "Kirim WA";
+  btnWA.className = "btn-primary";
+  btnWA.style.marginLeft = "5px";
+
+  btnWA.onclick = async () => {
+    const customers = await getCustomers();
+    const customer = customers.find(c => c.id === b.customerId);
+
+    const message =
+`Halo ${b.customerName},
+
+Ini adalah tagihan WiFi bulan ${b.bulan}.
+
+Total yang harus dibayar:
+Rp ${b.harga.toLocaleString("id-ID")}
+
+Mohon segera melakukan pembayaran.
+
+Terima kasih 🙏`;
+
+    const encodedMessage = encodeURIComponent(message);
+
+    window.open(
+      `https://wa.me/${customer.phone}?text=${encodedMessage}`,
+      "_blank"
+    );
+  };
+
+  aksi.appendChild(btnWA);
+}
+
+});
+
 }
 
 /* ===========================
@@ -211,6 +307,7 @@ async function loadBills() {
 
 loadCustomers();
 loadBills();
+loadFinance();
 
 </script>
 
