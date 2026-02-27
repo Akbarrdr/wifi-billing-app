@@ -3,64 +3,216 @@
 <head>
   <meta charset="UTF-8">
   <title>Dashboard WiFi Billing</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: Arial; padding: 20px; }
     table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background-color: #f4f4f4; }
-    button { padding: 5px 10px; margin: 2px; cursor: pointer; }
+    th, td { border: 1px solid #ccc; padding: 8px; }
+    th { background: #f4f4f4; }
+    button { padding: 5px 10px; cursor: pointer; }
     form input { padding: 5px; margin-right: 5px; }
   </style>
 </head>
 <body>
-  <h2>Dashboard WiFi Billing</h2>
-  <p>Login berhasil 🎉</p>
 
-  <h3>Tambah Pelanggan</h3>
-  <form id="customerForm">
-    <input type="text" id="name" placeholder="Nama" required>
-    <input type="text" id="paket" placeholder="Paket" required>
-    <input type="number" id="harga" placeholder="Harga" required>
-    <button type="submit">Tambah</button>
-  </form>
+<h2>Dashboard WiFi Billing</h2>
 
-  <h3>Daftar Pelanggan</h3>
-  <table id="customerTable">
+<h3>Tambah Pelanggan</h3>
+<form id="customerForm">
+  <input type="text" id="name" placeholder="Nama" required>
+  <input type="text" id="paket" placeholder="Paket" required>
+  <input type="number" id="harga" placeholder="Harga" required>
+  <button type="submit">Tambah</button>
+</form>
+
+<h3>Daftar Pelanggan</h3>
+<table id="customerTable">
+  <tr>
+    <th>Nama</th>
+    <th>Paket</th>
+    <th>Harga</th>
+    <th>Aksi</th>
+  </tr>
+</table>
+
+<h3>Sistem Tagihan</h3>
+<button id="generateBillBtn">Generate Tagihan Bulan Ini</button>
+
+<table id="billTable">
+  <tr>
+    <th>Nama</th>
+    <th>Bulan</th>
+    <th>Harga</th>
+    <th>Status</th>
+    <th>Aksi</th>
+  </tr>
+</table>
+
+<p>Total Tunggakan: <span id="totalDebt">0</span></p>
+
+<h3>Ringkasan</h3>
+<p>Total Pelanggan: <span id="totalCustomer">0</span></p>
+<p>Total Pemasukan: <span id="totalIncome">0</span></p>
+
+<canvas id="incomeChart" width="400" height="200"></canvas>
+
+<script type="module">
+
+import {
+  addCustomer,
+  getCustomers,
+  deleteCustomer,
+  generateMonthlyBills,
+  getBills,
+  payBill
+} from "./firestore.js";
+
+const form = document.getElementById("customerForm");
+const table = document.getElementById("customerTable");
+const billTable = document.getElementById("billTable");
+
+const totalCustomerElem = document.getElementById("totalCustomer");
+const totalIncomeElem = document.getElementById("totalIncome");
+const totalDebtElem = document.getElementById("totalDebt");
+
+const generateBtn = document.getElementById("generateBillBtn");
+const ctx = document.getElementById("incomeChart").getContext("2d");
+
+let chart;
+
+/* ===========================
+   CUSTOMER SECTION
+=========================== */
+
+async function loadCustomers() {
+  const customers = await getCustomers();
+
+  table.innerHTML = `
     <tr>
-      <th>Nama</th><th>Paket</th><th>Harga</th><th>Aksi</th>
+      <th>Nama</th>
+      <th>Paket</th>
+      <th>Harga</th>
+      <th>Aksi</th>
     </tr>
-  </table>
+  `;
 
-  <script type="module">
-    import { addCustomer, getCustomers, deleteCustomer, updateCustomer } from "./firestore.js";
+  let totalIncome = 0;
 
-    const form = document.getElementById("customerForm");
-    const table = document.getElementById("customerTable");
+  customers.forEach(c => {
+    const row = table.insertRow();
+    row.insertCell(0).innerText = c.name;
+    row.insertCell(1).innerText = c.paket;
+    row.insertCell(2).innerText = c.harga;
 
-    async function loadCustomers() {
-      const customers = await getCustomers();
-      table.innerHTML = `<tr><th>Nama</th><th>Paket</th><th>Harga</th><th>Aksi</th></tr>`;
-      customers.forEach(c => {
-        const row = table.insertRow();
-        row.insertCell(0).innerText = c.name;
-        row.insertCell(1).innerText = c.paket;
-        row.insertCell(2).innerText = c.harga;
-        const aksiCell = row.insertCell(3);
-        const delBtn = document.createElement("button");
-        delBtn.innerText = "Hapus";
-        delBtn.onclick = async () => { await deleteCustomer(c.id); loadCustomers(); };
-        aksiCell.appendChild(delBtn);
-      });
-    }
+    totalIncome += Number(c.harga);
 
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      await addCustomer(form.name.value, form.paket.value, Number(form.harga.value));
-      form.reset();
+    const aksiCell = row.insertCell(3);
+    const btn = document.createElement("button");
+    btn.innerText = "Hapus";
+    btn.onclick = async () => {
+      await deleteCustomer(c.id);
       loadCustomers();
+    };
+    aksiCell.appendChild(btn);
+  });
+
+  totalCustomerElem.innerText = customers.length;
+  totalIncomeElem.innerText = totalIncome;
+
+  updateChart(customers);
+}
+
+function updateChart(customers) {
+  const labels = customers.map(c => c.name);
+  const data = customers.map(c => Number(c.harga));
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Harga Paket',
+        data: data
+      }]
+    }
+  });
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  await addCustomer(
+    document.getElementById("name").value,
+    document.getElementById("paket").value,
+    Number(document.getElementById("harga").value)
+  );
+
+  form.reset();
+  loadCustomers();
+});
+
+
+/* ===========================
+   BILLING SECTION
+=========================== */
+
+generateBtn.onclick = async () => {
+  await generateMonthlyBills();
+  loadBills();
+};
+
+async function loadBills() {
+  const bills = await getBills();
+
+  billTable.innerHTML = `
+    <tr>
+      <th>Nama</th>
+      <th>Bulan</th>
+      <th>Harga</th>
+      <th>Status</th>
+      <th>Aksi</th>
+    </tr>
+  `;
+
+  let totalDebt = 0;
+
+  bills.forEach(b => {
+    const row = billTable.insertRow();
+    row.insertCell(0).innerText = b.customerName;
+    row.insertCell(1).innerText = b.bulan;
+    row.insertCell(2).innerText = b.harga;
+    row.insertCell(3).innerText = b.status;
+
+    if (b.status === "Belum Bayar") {
+      totalDebt += Number(b.harga);
     }
 
-    loadCustomers();
-  </script>
+    const aksi = row.insertCell(4);
+
+    if (b.status === "Belum Bayar") {
+      const btn = document.createElement("button");
+      btn.innerText = "Tandai Lunas";
+      btn.onclick = async () => {
+        await payBill(b.id);
+        loadBills();
+      };
+      aksi.appendChild(btn);
+    }
+  });
+
+  totalDebtElem.innerText = totalDebt;
+}
+
+/* ===========================
+   INIT
+=========================== */
+
+loadCustomers();
+loadBills();
+
+</script>
+
 </body>
 </html>
